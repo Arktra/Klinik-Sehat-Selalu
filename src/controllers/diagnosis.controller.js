@@ -87,7 +87,7 @@ exports.create = async (req, res) => {
       });
     }
 
-    const { queue_id, doctor_id } = req.body;
+    const { queue_id } = req.body;
 
     if (!queue_id) {
       return res.status(400).json({
@@ -104,20 +104,15 @@ exports.create = async (req, res) => {
       });
     }
 
-    if (doctor_id) {
-      const doctor = await User.findByPk(doctor_id);
-      if (!doctor) {
-        return res.status(404).json({
-          success: false,
-          message: `Doctor with ID ${doctor_id} not found`
-        });
-      }
-      if (doctor.role !== 'doctor') {
-        return res.status(403).json({
-          success: false,
-          message: `User with ID ${doctor_id} does not have doctor role. Current role: ${doctor.role}`
-        });
-      }
+    // Automatically use logged-in user as doctor_id
+    const doctor_id = req.user.id;
+    
+    // Verify that the logged-in user is actually a doctor (double check)
+    if (req.user.role !== 'doctor') {
+      return res.status(403).json({
+        success: false,
+        message: `Only doctors can create diagnoses. Your role: ${req.user.role}`
+      });
     }
 
     const existingDiagnosis = await Diagnosis.findOne({ 
@@ -130,7 +125,15 @@ exports.create = async (req, res) => {
       });
     }
 
-    const newDiagnosis = await Diagnosis.create(req.body);
+    const { diagnosis_notes, symptoms, treatment } = req.body;
+    
+    const newDiagnosis = await Diagnosis.create({
+      queue_id,
+      doctor_id,
+      diagnosis_notes,
+      symptoms,
+      treatment
+    });
     
     await Queue.update({ status: 'cashier' }, { where: { id: queue_id } });
     

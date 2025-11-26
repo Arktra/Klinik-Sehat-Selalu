@@ -10,6 +10,6 @@ router.put('/:id', authenticate, authorize(['admin', 'nurse']), queueController.
 router.delete('/:id', authenticate, authorize(['admin']), queueController.delete);
 router.get('/status/:status', authenticate, authorize(['admin', 'nurse']), queueController.getByStatus);
 router.patch('/:id/status', authenticate, authorize(['admin', 'nurse']), queueController.updateStatus);
-router.get('/next/:status', authenticate, authorize(['admin', 'nurse', 'doctor']), queueController.getNext);
+router.patch('/take-next', authenticate, authorize(['nurse']), queueController.takeNextQueue);
 
 module.exports = router;

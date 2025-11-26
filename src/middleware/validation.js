@@ -26,7 +26,7 @@ const userSchemas = {
     username: Joi.string().alphanum().min(3).max(30).required(),
     password: Joi.string().min(6).required(),
     name: Joi.string().min(2).max(100).required(),
-    role: Joi.string().valid('admin', 'patient', 'nurse', 'doctor', 'cashier').required()
+    role: Joi.string().valid('admin', 'patient', 'nurse', 'doctor', 'cashier', 'administrative', 'pharmacist').required()
   }),
   
   login: Joi.object({
@@ -38,7 +38,7 @@ const userSchemas = {
     username: Joi.string().alphanum().min(3).max(30),
     password: Joi.string().min(6),
     name: Joi.string().min(2).max(100),
-    role: Joi.string().valid('admin', 'patient', 'nurse', 'doctor', 'cashier')
+    role: Joi.string().valid('admin', 'patient', 'nurse', 'doctor', 'cashier', 'administrative', 'pharmacist')
   })
 };
 

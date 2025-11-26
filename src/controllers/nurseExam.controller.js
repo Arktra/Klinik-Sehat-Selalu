@@ -72,7 +72,7 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { queue_id, nurse_id } = req.body;
+    const { queue_id } = req.body;
 
     const queue = await Queue.findByPk(queue_id);
     if (!queue) {
@@ -82,21 +82,15 @@ exports.create = async (req, res) => {
       });
     }
 
-    if (nurse_id) {
-      const nurse = await User.findByPk(nurse_id);
-      if (!nurse) {
-        return res.status(404).json({
-          success: false,
-          message: `User with ID ${nurse_id} not found`
-        });
-      }
-      
-      if (nurse.role !== 'nurse') {
-        return res.status(400).json({
-          success: false,
-          message: `User with ID ${nurse_id} is not a nurse. Role: ${nurse.role}. Only users with role 'nurse' can perform nurse examinations.`
-        });
-      }
+    // Automatically use logged-in user as nurse_id
+    const nurse_id = req.user.id;
+    
+    // Verify that the logged-in user is actually a nurse (double check)
+    if (req.user.role !== 'nurse') {
+      return res.status(403).json({
+        success: false,
+        message: `Only nurses can create nurse examinations. Your role: ${req.user.role}`
+      });
     }
 
     const existingExam = await NurseExam.findOne({ 
@@ -109,7 +103,28 @@ exports.create = async (req, res) => {
       });
     }
 
-    const newNurseExam = await NurseExam.create(req.body);
+    const { blood_pressure, bp_systolic, bp_diastolic, temperature, spo2, weight, height, notes } = req.body;
+    
+    // Parse blood_pressure if provided in "120/80" format
+    let systolic = bp_systolic;
+    let diastolic = bp_diastolic;
+    if (blood_pressure && typeof blood_pressure === 'string' && blood_pressure.includes('/')) {
+      const [sys, dia] = blood_pressure.split('/');
+      systolic = parseInt(sys);
+      diastolic = parseInt(dia);
+    }
+    
+    const newNurseExam = await NurseExam.create({
+      queue_id,
+      nurse_id,
+      bp_systolic: systolic,
+      bp_diastolic: diastolic,
+      temperature,
+      spo2,
+      weight,
+      height,
+      notes
+    });
     
     await Queue.update({ status: 'doctor' }, { where: { id: queue_id } });
     

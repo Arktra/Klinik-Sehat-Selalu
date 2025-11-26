@@ -44,15 +44,19 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { patient_id } = req.body;
-
-    const patient = await Patient.findByPk(patient_id);
+    // Find patient associated with the authenticated user
+    const patient = await Patient.findOne({
+      where: { user_id: req.user.id }
+    });
+    
     if (!patient) {
       return res.status(404).json({ 
         success: false,
-        message: `Patient with ID ${patient_id} not found` 
+        message: 'Patient profile not found for this user' 
       });
     }
+
+    const patient_id = patient.id;
 
     const today = new Date().toISOString().split('T')[0];
     const existingRegistration = await Registration.findOne({
@@ -70,9 +74,14 @@ exports.create = async (req, res) => {
       });
     }
 
+    const { complaint, previous_history } = req.body;
+    
     const newRegistration = await Registration.create({
-      ...req.body,
-      registration_date: today
+      patient_id: patient_id,
+      complaint,
+      previous_history,
+      registration_date: today,
+      status: 'pending'
     });
     
     const registration = await Registration.findByPk(newRegistration.id, {
@@ -277,8 +286,8 @@ exports.verifyRegistration = async (req, res) => {
       });
     }
     
-    let assignedNurseId;
-
+    let assignedNurseId = null;
+    
     const registration = await Registration.findByPk(id);
     if (!registration) {
       return res.status(404).json({
@@ -294,8 +303,7 @@ exports.verifyRegistration = async (req, res) => {
       });
     }
 
-    assignedNurseId = currentUser.id;
-    console.log('Assigning nurse_id:', assignedNurseId, 'from user role:', currentUser.role);
+    console.log('Verification by user role:', currentUser.role, '- nurse_id will remain null until nurse takes the queue');
 
     const t = await sequelize.transaction();
     
@@ -311,17 +319,18 @@ exports.verifyRegistration = async (req, res) => {
 
       console.log('Step 2: Status updated successfully');
 
-      console.log('Step 3: Trying to update nurse_id and verified_at...');
+      console.log('Step 3: Updating verified_at only (nurse_id remains null until nurse takes queue)...');
+      
+      const updateData = {
+        verified_at: new Date()
+      };
+      
       console.log('UPDATE DATA:', { 
-        nurse_id: assignedNurseId,
-        verified_at: new Date(),
+        ...updateData,
         where_id: id 
       });
       
-      const updateResult = await Registration.update({ 
-        nurse_id: assignedNurseId,
-        verified_at: new Date()
-      }, { 
+      const updateResult = await Registration.update(updateData, { 
         where: { id: id },
         transaction: t
       });
@@ -419,8 +428,9 @@ exports.verifyRegistration = async (req, res) => {
 
       res.json({
         success: true,
-        message: 'Registration verified and queue created successfully',
-        data: updated
+        message: 'Registration verified and queue created successfully. Waiting for nurse to take the queue.',
+        data: updated,
+        queue_number: createdQueue.queue_number
       });
 
     } catch (error) {

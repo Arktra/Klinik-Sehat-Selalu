@@ -235,30 +235,119 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-exports.getNext = async (req, res) => {
+exports.takeNextQueue = async (req, res) => {
   try {
-    const { status } = req.params;
-    const queue = await Queue.findOne({
-      where: { status: status },
-      include: [{
-        model: Registration,
-        as: 'registration',
-        include: [{
-          model: Patient,
-          as: 'patient',
-          include: [{
-            model: User,
-            as: 'user',
-            attributes: { exclude: ['password'] }
-          }]
-        }]
-      }],
+    const nurseId = req.user.id;
+    const sequelize = require('../config/database');
+    const { Registration } = require('../models');
+    
+    console.log('🔍 Nurse trying to take next queue, nurse ID:', nurseId);
+    
+    // First, let's see all queues for debugging
+    const allQueues = await Queue.findAll({
+      attributes: ['id', 'queue_number', 'status', 'registration_id'],
       order: [['queue_number', 'ASC']]
     });
+    console.log('📋 All queues in database:', JSON.stringify(allQueues, null, 2));
     
-    if (!queue) return res.status(404).json({ message: 'No queue found' });
-    res.json(queue);
+    const waitingQueues = await Queue.findAll({
+      where: { status: 'waiting' },
+      attributes: ['id', 'queue_number', 'status', 'registration_id'],
+      order: [['queue_number', 'ASC']]
+    });
+    console.log('⏳ Waiting queues:', JSON.stringify(waitingQueues, null, 2));
+    
+    const t = await sequelize.transaction();
+    
+    try {
+      const nextQueue = await Queue.findOne({
+        where: { status: 'waiting' },
+        include: [{
+          model: Registration,
+          as: 'registration'
+        }],
+        order: [['queue_number', 'ASC']],
+        transaction: t
+      });
+      
+      if (!nextQueue) {
+        await t.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'No waiting queue found',
+          debug: {
+            total_queues: allQueues.length,
+            waiting_queues: waitingQueues.length,
+            all_queues: allQueues
+          }
+        });
+      }
+      
+      console.log('🔄 Updating queue status to nurse for queue ID:', nextQueue.id);
+      const queueUpdateResult = await Queue.update(
+        { status: 'nurse' },
+        { 
+          where: { id: nextQueue.id },
+          transaction: t
+        }
+      );
+      console.log('✅ Queue update result:', queueUpdateResult);
+      
+      console.log('🔄 Updating registration nurse_id to:', nurseId, 'for registration ID:', nextQueue.registration_id);
+      const registrationUpdateResult = await Registration.update(
+        { nurse_id: nurseId },
+        { 
+          where: { id: nextQueue.registration_id },
+          transaction: t
+        }
+      );
+      console.log('✅ Registration update result:', registrationUpdateResult);
+      
+      await t.commit();
+      
+      const updatedQueue = await Queue.findByPk(nextQueue.id, {
+        include: [{
+          model: Registration,
+          as: 'registration',
+          include: [
+            {
+              model: Patient,
+              as: 'patient',
+              include: [{
+                model: User,
+                as: 'user',
+                attributes: { exclude: ['password'] }
+              }]
+            },
+            {
+              model: User,
+              as: 'nurse',
+              attributes: { exclude: ['password'] }
+            }
+          ]
+        }]
+      });
+      
+      res.json({
+        success: true,
+        message: 'Queue taken successfully',
+        data: updatedQueue
+      });
+      
+    } catch (error) {
+      console.error('❌ Transaction error:', error.message);
+      console.error('❌ Error stack:', error.stack);
+      await t.rollback();
+      throw error;
+    }
+    
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('❌ Take next queue error:', err.message);
+    console.error('❌ Error details:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      details: err.sql ? 'SQL Error' : 'Unknown Error'
+    });
   }
 };

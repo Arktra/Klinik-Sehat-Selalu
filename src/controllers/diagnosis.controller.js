@@ -125,14 +125,14 @@ exports.create = async (req, res) => {
       });
     }
 
-    const { diagnosis_notes, symptoms, treatment } = req.body;
+    const { diagnosis_text, action, actions, notes } = req.body;
     
     const newDiagnosis = await Diagnosis.create({
       queue_id,
       doctor_id,
-      diagnosis_notes,
-      symptoms,
-      treatment
+      diagnosis_text,
+      actions: actions || action,
+      notes
     });
     
     await Queue.update({ status: 'cashier' }, { where: { id: queue_id } });

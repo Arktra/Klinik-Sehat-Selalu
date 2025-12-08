@@ -29,13 +29,13 @@ const Prescription = sequelize.define('Prescription', {
     type: DataTypes.STRING(50),
     allowNull: true
   },
-  instruction: {
-    type: DataTypes.TEXT,
+  instructions: {
+    type: DataTypes.STRING(255),
     allowNull: true
   },
-  status: {
-    type: DataTypes.ENUM('draft', 'done'),
-    defaultValue: 'draft'
+  advice: {
+    type: DataTypes.STRING(255),
+    allowNull: true
   },
   created_at: {
     type: DataTypes.DATE,

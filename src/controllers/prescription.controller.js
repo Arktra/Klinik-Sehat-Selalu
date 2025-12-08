@@ -80,7 +80,7 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { diagnosis_id } = req.body;
+    const { diagnosis_id, medication, medicine_name, dosage, instructions, advice } = req.body;
 
     const diagnosis = await Diagnosis.findByPk(diagnosis_id);
     if (!diagnosis) {
@@ -90,7 +90,13 @@ exports.create = async (req, res) => {
       });
     }
 
-    const newPrescription = await Prescription.create(req.body);
+    const newPrescription = await Prescription.create({
+      diagnosis_id,
+      medicine_name: medicine_name || medication,
+      dosage,
+      instructions,
+      advice
+    });
     const prescription = await Prescription.findByPk(newPrescription.id, {
       include: [{
         model: Diagnosis,
@@ -223,48 +229,6 @@ exports.getByDiagnosisId = async (req, res) => {
       }]
     });
     res.json(prescriptions);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-exports.updateStatus = async (req, res) => {
-  try {
-    const id = req.params.id;
-    const { status } = req.body;
-    
-    await Prescription.update({ status: status }, { where: { id: id } });
-    const updated = await Prescription.findByPk(id, {
-      include: [{
-        model: Diagnosis,
-        as: 'diagnosis',
-        include: [
-          {
-            model: Queue,
-            as: 'queue',
-            include: [{
-              model: Registration,
-              as: 'registration',
-              include: [{
-                model: Patient,
-                as: 'patient',
-                include: [{
-                  model: User,
-                  as: 'user',
-                  attributes: { exclude: ['password'] }
-                }]
-              }]
-            }]
-          },
-          {
-            model: User,
-            as: 'doctor',
-            attributes: { exclude: ['password'] }
-          }
-        ]
-      }]
-    });
-    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

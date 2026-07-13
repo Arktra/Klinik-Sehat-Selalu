@@ -74,7 +74,10 @@ exports.create = async (req, res) => {
   try {
     const { queue_id } = req.body;
 
-    const queue = await Queue.findByPk(queue_id);
+    const queue = await Queue.findByPk(queue_id, {
+      include: [{ model: Registration, as: 'registration' }]
+    });
+    
     if (!queue) {
       return res.status(404).json({ 
         success: false,
@@ -82,14 +85,29 @@ exports.create = async (req, res) => {
       });
     }
 
+    if (queue.status !== 'nurse') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record nurse exam for queue in status: ${queue.status}. Queue must be in 'nurse' status.`
+      });
+    }
+
     // Automatically use logged-in user as nurse_id
     const nurse_id = req.user.id;
     
-    // Verify that the logged-in user is actually a nurse (double check)
-    if (req.user.role !== 'nurse') {
+    // Verify that the logged-in user is a nurse or admin
+    if (req.user.role !== 'nurse' && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: `Only nurses can create nurse examinations. Your role: ${req.user.role}`
+      });
+    }
+
+    // Verify the assigned nurse (except for admin)
+    if (req.user.role === 'nurse' && queue.registration && queue.registration.nurse_id !== nurse_id) {
+      return res.status(403).json({
+        success: false,
+        message: `You are not assigned to this queue's registration. Expected Nurse ID: ${queue.registration.nurse_id}`
       });
     }
 
@@ -173,7 +191,16 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const id = req.params.id;
-    await NurseExam.update(req.body, { where: { id: id } });
+    
+    const allowedFields = ['bp_systolic', 'bp_diastolic', 'temperature', 'spo2', 'height', 'weight', 'notes'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    await NurseExam.update(updateData, { where: { id: id } });
     const updated = await NurseExam.findByPk(id, {
       include: [
         {

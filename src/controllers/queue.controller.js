@@ -121,7 +121,16 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const id = req.params.id;
-    await Queue.update(req.body, { where: { id: id } });
+    
+    const allowedFields = ['status'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    await Queue.update(updateData, { where: { id: id } });
     const updated = await Queue.findByPk(id, {
       include: [{
         model: Registration,

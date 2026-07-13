@@ -94,13 +94,36 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { diagnosis_id, cashier_id } = req.body;
+    const { diagnosis_id } = req.body;
+    let cashier_id = req.body.cashier_id;
 
-    const diagnosis = await Diagnosis.findByPk(diagnosis_id);
+    // Automatically set cashier_id to logged-in user if they are cashier or admin
+    if (!cashier_id && (req.user.role === 'cashier' || req.user.role === 'admin')) {
+      cashier_id = req.user.id;
+    }
+
+    const diagnosis = await Diagnosis.findByPk(diagnosis_id, {
+      include: [{ model: Queue, as: 'queue' }]
+    });
+
     if (!diagnosis) {
       return res.status(404).json({ 
         success: false,
         message: `Diagnosis with ID ${diagnosis_id} not found` 
+      });
+    }
+
+    if (!diagnosis.queue) {
+      return res.status(400).json({
+        success: false,
+        message: `Queue not found for the specified diagnosis`
+      });
+    }
+
+    if (diagnosis.queue.status !== 'cashier') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create payment record for queue in status: ${diagnosis.queue.status}. Queue must be in 'cashier' status.`
       });
     }
 
@@ -112,12 +135,17 @@ exports.create = async (req, res) => {
           message: `Cashier with ID ${cashier_id} not found`
         });
       }
-      if (cashier.role !== 'cashier') {
+      if (cashier.role !== 'cashier' && cashier.role !== 'admin') {
         return res.status(403).json({
           success: false,
           message: `User with ID ${cashier_id} does not have cashier role. Current role: ${cashier.role}`
         });
       }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Cashier ID is required'
+      });
     }
 
     const existingPayment = await Payment.findOne({ 
@@ -130,7 +158,10 @@ exports.create = async (req, res) => {
       });
     }
 
-    const newPayment = await Payment.create(req.body);
+    const newPayment = await Payment.create({
+      ...req.body,
+      cashier_id
+    });
     const payment = await Payment.findByPk(newPayment.id, {
       include: [
         {
@@ -187,7 +218,16 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const id = req.params.id;
-    await Payment.update(req.body, { where: { id: id } });
+    
+    const allowedFields = ['doctor_fee', 'treatment_fee', 'drug_fee', 'status'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    await Payment.update(updateData, { where: { id: id } });
     const updated = await Payment.findByPk(id, {
       include: [
         {
@@ -243,13 +283,11 @@ exports.delete = async (req, res) => {
 };
 
 exports.processPayment = async (req, res) => {
+  const { sequelize } = require('../models');
+  const t = await sequelize.transaction();
+
   try {
     const id = req.params.id;
-    
-    await Payment.update({
-      status: 'paid',
-      paid_at: new Date()
-    }, { where: { id: id } });
     
     const payment = await Payment.findByPk(id, {
       include: [{
@@ -259,12 +297,50 @@ exports.processPayment = async (req, res) => {
           model: Queue,
           as: 'queue'
         }]
-      }]
+      }],
+      transaction: t
     });
     
-    if (payment && payment.diagnosis && payment.diagnosis.queue) {
-      await Queue.update({ status: 'done' }, { where: { id: payment.diagnosis.queue.id } });
+    if (!payment) {
+      await t.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found'
+      });
     }
+
+    if (payment.status === 'paid') {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Payment has already been processed and is marked as paid'
+      });
+    }
+
+    if (!payment.diagnosis || !payment.diagnosis.queue) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Queue associated with this payment not found'
+      });
+    }
+
+    if (payment.diagnosis.queue.status !== 'cashier') {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Associated queue is in status: ${payment.diagnosis.queue.status}. Must be in 'cashier' status to process payment.`
+      });
+    }
+
+    await Payment.update({
+      status: 'paid',
+      paid_at: new Date()
+    }, { where: { id: id }, transaction: t });
+    
+    await Queue.update({ status: 'done' }, { where: { id: payment.diagnosis.queue.id }, transaction: t });
+    
+    await t.commit();
     
     const updated = await Payment.findByPk(id, {
       include: [
@@ -304,9 +380,14 @@ exports.processPayment = async (req, res) => {
       ]
     });
     
-    res.json(updated);
+    res.json({
+      success: true,
+      message: 'Payment processed successfully',
+      data: updated
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    await t.rollback();
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 

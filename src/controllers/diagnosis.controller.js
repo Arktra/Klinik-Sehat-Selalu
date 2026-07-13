@@ -104,11 +104,18 @@ exports.create = async (req, res) => {
       });
     }
 
+    if (queue.status !== 'doctor') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record diagnosis for queue in status: ${queue.status}. Queue must be in 'doctor' status.`
+      });
+    }
+
     // Automatically use logged-in user as doctor_id
     const doctor_id = req.user.id;
     
-    // Verify that the logged-in user is actually a doctor (double check)
-    if (req.user.role !== 'doctor') {
+    // Verify that the logged-in user is actually a doctor or admin (double check)
+    if (req.user.role !== 'doctor' && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: `Only doctors can create diagnoses. Your role: ${req.user.role}`
@@ -181,7 +188,16 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const id = req.params.id;
-    await Diagnosis.update(req.body, { where: { id: id } });
+    
+    const allowedFields = ['diagnosis_text', 'actions', 'action', 'notes'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    await Diagnosis.update(updateData, { where: { id: id } });
     const updated = await Diagnosis.findByPk(id, {
       include: [
         {

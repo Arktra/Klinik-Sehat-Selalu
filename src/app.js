@@ -4,6 +4,8 @@ const compression = require('compression');
 const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const { sanitizeMiddleware } = require('./utils/sanitize');
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
@@ -27,17 +29,38 @@ app.use(helmet({
 
 app.use(compression());
 
+const allowedOrigins = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',') 
+  : ['http://localhost:3000'];
+
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, postman, or curl)
+    if (!origin) return callback(null, true);
+    
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed === '*') return true;
+      return allowed.trim().toLowerCase() === origin.trim().toLowerCase();
+    });
+    
+    if (isAllowed) {
+      return callback(null, true);
+    }
+    
+    return callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 };
 app.use(cors(corsOptions));
 
+const rateLimitWindow = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000;
+const rateLimitMax = parseInt(process.env.RATE_LIMIT_MAX) || 100;
+
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.RATE_LIMIT || 100,
+  windowMs: rateLimitWindow,
+  max: rateLimitMax,
   message: {
     error: 'Too many requests from this IP, please try again later.'
   },
@@ -53,6 +76,7 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(sanitizeMiddleware);
 
 if (process.env.NODE_ENV === 'production') {
   app.use(morgan('combined'));
@@ -105,18 +129,7 @@ app.use('/api/diagnoses', diagnosisRoutes);
 app.use('/api/prescriptions', prescriptionRoutes);
 app.use('/api/payments', paymentRoutes);
 
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({
-    message: 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { error: err.message })
-  });
-});
-
-app.use((req, res) => {
-  res.status(404).json({
-    message: `Route ${req.originalUrl} not found`
-  });
-});
+app.use(errorHandler);
+app.use(notFoundHandler);
 
 module.exports = app;

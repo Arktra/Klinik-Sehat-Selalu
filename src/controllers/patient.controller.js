@@ -123,7 +123,15 @@ exports.update = async (req, res) => {
       });
     }
     
-    await Patient.update(req.body, { where: { id: id } });
+    const allowedFields = ['nik', 'gender', 'birth_date', 'phone', 'address'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    await Patient.update(updateData, { where: { id: id } });
     const updated = await Patient.findByPk(id, {
       include: [{
         model: User,

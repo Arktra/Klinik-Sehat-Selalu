@@ -146,7 +146,16 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const id = req.params.id;
-    await Prescription.update(req.body, { where: { id: id } });
+    
+    const allowedFields = ['medicine_name', 'dosage', 'instructions', 'advice'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    await Prescription.update(updateData, { where: { id: id } });
     const updated = await Prescription.findByPk(id, {
       include: [{
         model: Diagnosis,

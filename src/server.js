@@ -7,6 +7,9 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 (async () => {
   try {
+    if (sequelize.ensureDatabaseExists) {
+      await sequelize.ensureDatabaseExists();
+    }
     await sequelize.authenticate();
     console.log(`✅ Database connected successfully`);
     
